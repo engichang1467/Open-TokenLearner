@@ -77,7 +77,7 @@ class TokenLearner(nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, return_attn: bool = False):
         x = _to_bhwc(x)
         b, h, w, c = x.shape
 
@@ -91,6 +91,9 @@ class TokenLearner(nn.Module):
         out = torch.einsum("bshw,bhwc->bsc", attn, x)
         if not self.use_sum_pooling:
             out = out / (h * w)
+        if return_attn:
+            # attn: [B, S, H, W] spatial attention maps (one per learned token).
+            return out, attn
         return out
 
 
@@ -118,7 +121,7 @@ class TokenLearnerV11(nn.Module):
         self.fc2 = nn.Linear(bottleneck_dim, num_tokens)
         self.drop = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, return_attn: bool = False):
         x_flat = _to_bnc(x)  # [B, HW, C]
 
         # MlpBlock: Dense -> gelu -> dropout -> Dense -> dropout (matches Scenic).
@@ -127,7 +130,12 @@ class TokenLearnerV11(nn.Module):
         attn = attn.transpose(-1, -2)  # [B, S, HW]
         attn = F.softmax(attn, dim=-1)  # softmax over spatial positions
 
-        return torch.einsum("bsi,bic->bsc", attn, x_flat)
+        out = torch.einsum("bsi,bic->bsc", attn, x_flat)
+        if return_attn:
+            # attn: [B, S, HW] softmax-over-space maps; reshape to [B,S,H,W] at
+            # the consumer (this module keeps its native flattened layout).
+            return out, attn
+        return out
 
 
 class TokenFuser(nn.Module):

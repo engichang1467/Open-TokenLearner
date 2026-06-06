@@ -62,6 +62,17 @@ def test_tokenlearner_v10_grad() -> None:
     assert torch.isfinite(x.grad).all()
 
 
+def test_tokenlearner_v10_return_attn() -> None:
+    """return_attn yields the [B,S,H,W] maps; the pooled output is unchanged."""
+    torch.manual_seed(0)
+    x = torch.randn(2, 14, 14, 768)
+    tl = TokenLearner(in_channels=768, num_tokens=8)
+    out_only = tl(x)
+    out, attn = tl(x, return_attn=True)
+    assert attn.shape == (2, 8, 14, 14)
+    assert torch.equal(out, out_only)  # byte-identical, no behavior drift
+
+
 def test_tokenlearner_v11_shape_flat() -> None:
     x = torch.randn(2, 196, 768)
     tl = TokenLearnerV11(in_channels=768, num_tokens=8, bottleneck_dim=64)
@@ -96,6 +107,20 @@ def test_tokenlearner_v11_grad() -> None:
     tl(x).sum().backward()
     assert x.grad is not None
     assert torch.isfinite(x.grad).all()
+
+
+def test_tokenlearner_v11_return_attn() -> None:
+    """return_attn yields the [B,S,HW] softmax maps; pooled output is unchanged."""
+    torch.manual_seed(0)
+    x = torch.randn(2, 196, 768)
+    tl = TokenLearnerV11(in_channels=768, num_tokens=8, bottleneck_dim=64)
+    out_only = tl(x)
+    out, attn = tl(x, return_attn=True)
+    assert attn.shape == (2, 8, 196)
+    # maps are a softmax over the spatial axis -> each map sums to 1.
+    sums = attn.sum(dim=-1)
+    assert torch.allclose(sums, torch.ones_like(sums), atol=1e-5)
+    assert torch.equal(out, out_only)
 
 
 def test_tokenfuser_shape() -> None:
